@@ -9,6 +9,15 @@ Note to self: Breaking changes must increment either
 
 -->
 
+## Unreleased
+
+_**Security**_
+
+* fix(ssrf): the `private` filter of `url()` and `hostname()` now also applies to IPv6 addresses. Previously `ipv6()` had no `private` parameter and the flag was silently dropped on the IPv6 code path, so internal IPv6 forms — loopback (`::1`), link-local (`fe80::/10`), unique-local (`fc00::/7`) and IPv4-mapped (`::ffff:a.b.c.d`) addresses — passed validation even when only public addresses were allowed (`private=False`).
+    * `ipv6()` gains a `private: Optional[bool] = None` keyword argument, matching the existing `ipv4()` semantics (`None` = no check, `False` = public only, `True` = private/local only). Classification delegates to the standard library's `ipaddress` module.
+    * `hostname()` forwards `private` to its IPv6 branch, so the URL and hostname entry points now behave identically.
+    * Malformed IPv6 input still yields a `ValidationError` regardless of the `private` setting; no unrelated exceptions are raised.
+
 ## 0.36.0 (2026-10-10)
 
 _**Breaking**_ ⚠️

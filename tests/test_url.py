@@ -7,7 +7,7 @@ from typing import Optional
 import pytest
 
 # local
-from validators import ValidationError, url
+from validators import ValidationError, hostname, url
 
 
 @pytest.mark.parametrize(
@@ -116,6 +116,14 @@ def test_returns_true_on_valid_url(value: str):
         ("http://username:password@10.0.10.1/", True),
         ("http://username:password@192.168.10.10:4010/", True),
         ("http://127.0.0.1", True),
+        # IPv6 internal forms
+        ("http://[::1]/", True),  # loopback
+        ("http://[fe80::1]/", True),  # link-local
+        ("http://[fc00::1]/", True),  # unique-local
+        ("http://[fd12:3456:789a::1]/", True),  # unique-local
+        ("http://[::ffff:127.0.0.1]/", True),  # IPv4-mapped loopback
+        ("http://[::1]:8080/", True),  # loopback with port
+        ("http://user:pass@[fe80::1]/", True),  # link-local with auth
     ],
 )
 def test_returns_true_on_valid_private_url(value: str, private: Optional[bool]):
@@ -214,11 +222,50 @@ def test_returns_failed_validation_on_invalid_url(value: str):
         ("http://username:password@127.0.0.1:8080", False),
         ("http://10.0.10.1", False),
         ("http://255.255.255.255", False),
+        # IPv6 internal forms that must not bypass the SSRF filter
+        ("http://[::1]/", False),  # loopback
+        ("http://[fe80::1]/", False),  # link-local
+        ("http://[fc00::1]/", False),  # unique-local
+        ("http://[fd12:3456:789a::1]/", False),  # unique-local
+        ("http://[::ffff:127.0.0.1]/", False),  # IPv4-mapped loopback
+        ("http://[::ffff:192.168.1.1]/", False),  # IPv4-mapped private
+        ("http://[::1]:8080/", False),  # loopback with port
+        ("http://user:pass@[fe80::1]/", False),  # link-local with auth
     ],
 )
 def test_returns_failed_validation_on_invalid_private_url(value: str, private: Optional[bool]):
     """Test returns failed validation on invalid private url."""
     assert isinstance(url(value, private=private), ValidationError)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "http://[2606:4700:4700::1111]/",  # public unicast
+        "http://[2001:4860:4860::8888]:443/",  # public unicast with port
+        "http://[::ffff:1.1.1.1]/",  # IPv4-mapped public address
+    ],
+)
+def test_returns_true_on_valid_public_ipv6_url(value: str):
+    """Public IPv6 hosts must not be rejected when filtering private addresses."""
+    assert url(value, private=False)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "http://[::1]/",
+        "http://[fe80::1]/",
+        "http://[fc00::1]/",
+        "http://[::ffff:127.0.0.1]/",
+    ],
+)
+def test_ipv6_private_filter_is_consistent_between_url_and_hostname(value: str):
+    """The URL and hostname entry points must agree on IPv6 private filtering."""
+    host = value.removeprefix("http://").removesuffix("/").strip("[]")
+    url_result = bool(url(value, private=False))
+    hostname_result = bool(hostname(host, private=False))
+    assert url_result is hostname_result is False
 
 
 @pytest.mark.parametrize(

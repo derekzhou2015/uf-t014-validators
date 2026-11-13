@@ -171,3 +171,57 @@ def test_returns_true_on_valid_top_level_domain_hostname(value: str):
 def test_returns_failed_validation_on_invalid_top_level_domain_hostname(value: str):
     """Test returns failed validation on hostname with a TLD not allowed by IANA."""
     assert isinstance(hostname(value, consider_tld=True), ValidationError)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "::1",  # loopback
+        "[::1]:22",  # loopback with port
+        "fe80::1",  # link-local
+        "fe80::1%eth0",  # link-local with scope id
+        "fc00::1",  # unique-local
+        "fd12:3456:789a::1",  # unique-local
+        "::ffff:127.0.0.1",  # IPv4-mapped loopback
+        "::ffff:192.168.1.1",  # IPv4-mapped private
+    ],
+)
+def test_returns_failed_validation_on_private_ipv6_hostname_when_public_required(value: str):
+    """Internal IPv6 hosts must fail when `private=False` (public address required)."""
+    assert isinstance(hostname(value, private=False), ValidationError)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "::1",
+        "[::1]:22",
+        "fe80::1",
+        "fc00::1",
+        "fd12:3456:789a::1",
+        "::ffff:127.0.0.1",
+    ],
+)
+def test_returns_true_on_private_ipv6_hostname_when_private_required(value: str):
+    """Internal IPv6 hosts pass when `private=True`."""
+    assert hostname(value, private=True)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "2606:4700:4700::1111",  # public unicast
+        "[2001:4860:4860::8888]:443",  # public unicast with port
+        "::ffff:1.1.1.1",  # IPv4-mapped public address
+    ],
+)
+def test_returns_true_on_public_ipv6_hostname_when_public_required(value: str):
+    """Public IPv6 hosts must not be rejected when filtering private addresses."""
+    assert hostname(value, private=False)
+
+
+def test_ipv6_private_filter_defaults_to_no_filtering_in_hostname():
+    """Without `private`, internal IPv6 hostnames keep their previous behavior."""
+    assert hostname("::1")
+    assert hostname("[fe80::1]:22")
+    assert hostname("2606:4700:4700::1111")

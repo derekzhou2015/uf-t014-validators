@@ -1,5 +1,8 @@
 """Test IP Address."""
 
+# standard
+from typing import Optional
+
 # external
 import pytest
 
@@ -204,3 +207,83 @@ def test_returns_true_on_valid_public_ipv4_address(address: str, private: bool):
 def test_returns_failed_validation_on_invalid_public_ipv4_address(address: str, private: bool):
     """Test returns failed validation on private ipv4 address."""
     assert isinstance(ipv4(address, private=private), ValidationError)
+
+
+@pytest.mark.parametrize(
+    ("address", "private"),
+    [
+        ("::1", True),  # loopback
+        ("fe80::1", True),  # link-local
+        ("fe80::1%eth0", True),  # link-local with scope id
+        ("fc00::1", True),  # unique-local
+        ("fd00::1", True),  # unique-local
+        ("::", True),  # unspecified
+        ("::ffff:127.0.0.1", True),  # IPv4-mapped loopback
+        ("::ffff:192.168.1.1", True),  # IPv4-mapped private
+        ("::ffff:169.254.1.1", True),  # IPv4-mapped link-local
+    ],
+)
+def test_returns_true_on_valid_private_ipv6_address(address: str, private: bool):
+    """Test returns true on private/local ipv6 address."""
+    assert ipv6(address, private=private)
+
+
+@pytest.mark.parametrize(
+    ("address", "private"),
+    [
+        ("2606:4700:4700::1111", True),  # public unicast
+        ("2001:4860:4860::8888", True),  # public unicast
+        ("::ffff:1.1.1.1", True),  # IPv4-mapped public address
+        ("ff02::1", True),  # multicast is not classified as private
+    ],
+)
+def test_returns_failed_validation_on_invalid_private_ipv6_address(address: str, private: bool):
+    """Test returns failed validation when a public ipv6 address is expected to be private."""
+    assert isinstance(ipv6(address, private=private), ValidationError)
+
+
+@pytest.mark.parametrize(
+    ("address", "private"),
+    [
+        ("2606:4700:4700::1111", False),
+        ("2001:4860:4860::8888", False),
+        ("::ffff:1.1.1.1", False),
+        ("ff02::1", False),
+    ],
+)
+def test_returns_true_on_valid_public_ipv6_address(address: str, private: bool):
+    """Test returns true on public ipv6 address."""
+    assert ipv6(address, private=private)
+
+
+@pytest.mark.parametrize(
+    ("address", "private"),
+    [
+        ("::1", False),  # loopback
+        ("fe80::1", False),  # link-local
+        ("fe80::1%eth0", False),  # link-local with scope id
+        ("fc00::1", False),  # unique-local
+        ("fd00::1", False),  # unique-local
+        ("::", False),  # unspecified
+        ("::ffff:127.0.0.1", False),  # IPv4-mapped loopback
+        ("::ffff:192.168.1.1", False),  # IPv4-mapped private
+        ("::ffff:169.254.1.1", False),  # IPv4-mapped link-local
+    ],
+)
+def test_returns_failed_validation_on_invalid_public_ipv6_address(address: str, private: bool):
+    """Test returns failed validation on private/local ipv6 address."""
+    assert isinstance(ipv6(address, private=private), ValidationError)
+
+
+@pytest.mark.parametrize("private", [None, False, True])
+def test_ipv6_private_filter_never_raises_on_malformed_address(private: Optional[bool]):
+    """A privacy filter must not surface unrelated errors for malformed addresses."""
+    assert isinstance(ipv6("G::1", private=private), ValidationError)
+    assert isinstance(ipv6("abcd:1234::123::1", private=private), ValidationError)
+
+
+def test_ipv6_private_filter_defaults_to_no_filtering():
+    """Without `private`, internal and public addresses are both accepted."""
+    assert ipv6("::1")
+    assert ipv6("fe80::1")
+    assert ipv6("2606:4700:4700::1111")

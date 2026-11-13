@@ -218,6 +218,9 @@ def url(
             Restrict domain to TLDs allowed by IANA.
         private:
             Embedded IP address is public if `False`, private/local if `True`.
+            Applies to both IPv4 and IPv6 hosts: IPv6 loopback (`::1`),
+            link-local (`fe80::/10`), unique-local (`fc00::/7`) and
+            IPv4-mapped (`::ffff:a.b.c.d`) addresses are filtered too.
         rfc_1034:
             Allow trailing dot in domain/host name.
             Ref: [RFC 1034](https://www.rfc-editor.org/rfc/rfc1034).

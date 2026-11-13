@@ -38,6 +38,19 @@ def _check_private_ip(value: str, is_private: Optional[bool]):
     return not is_private
 
 
+def _check_private_ipv6(addr: IPv6Address | IPv6Network, is_private: Optional[bool]):
+    """Check whether an IPv6 address/network matches the expected privacy scope.
+
+    `ipaddress` classifies IPv6 loopback (`::1`), link-local (`fe80::/10`),
+    unique-local (`fc00::/7`) and IPv4-mapped (`::ffff:a.b.c.d`) addresses as
+    private, so the same `private` flag used by `ipv4()` also covers every
+    internal IPv6 form that can bypass SSRF filters.
+    """
+    if is_private is None:
+        return True
+    return addr.is_private == is_private
+
+
 @validator
 def ipv4(
     value: str,
@@ -95,7 +108,15 @@ def ipv4(
 
 
 @validator
-def ipv6(value: str, /, *, cidr: bool = True, strict: bool = False, host_bit: bool = True):
+def ipv6(
+    value: str,
+    /,
+    *,
+    cidr: bool = True,
+    strict: bool = False,
+    host_bit: bool = True,
+    private: Optional[bool] = None,
+):
     """Returns if a given value is a valid IPv6 address.
 
     Including IPv4-mapped IPv6 addresses. The initial version of ipv6 validator
@@ -110,6 +131,10 @@ def ipv6(value: str, /, *, cidr: bool = True, strict: bool = False, host_bit: bo
         True
         >>> ipv6('abc.0.0.1')
         ValidationError(func=ipv6, args={'value': 'abc.0.0.1'})
+        >>> bool(ipv6('::1', private=False))
+        False
+        >>> ipv6('2606:4700:4700::1111', private=False)
+        True
 
     Args:
         value:
@@ -122,6 +147,11 @@ def ipv6(value: str, /, *, cidr: bool = True, strict: bool = False, host_bit: bo
             If `False` and host bits (along with network bits) _are_ set in the supplied
             address, this function raises a validation error. ref [IPv6Network][2].
             [2]: https://docs.python.org/3/library/ipaddress.html#ipaddress.IPv6Network
+        private:
+            IP address is public if `False`, private/local/loopback if `True`.
+            The check covers loopback (`::1`), link-local (`fe80::/10`),
+            unique-local (`fc00::/7`) and IPv4-mapped (`::ffff:a.b.c.d`)
+            addresses, including an embedded private IPv4 address.
 
     Returns:
         (Literal[True]): If `value` is a valid IPv6 address.
@@ -130,10 +160,17 @@ def ipv6(value: str, /, *, cidr: bool = True, strict: bool = False, host_bit: bo
     if not value:
         return False
     try:
-        if cidr:
+        if cidr and "/" in value:
             if strict and value.count("/") != 1:
                 raise ValueError("IPv6 address was expected in CIDR notation")
-            return IPv6Network(value, strict=not host_bit)
-        return IPv6Address(value)
+            addr: IPv6Address | IPv6Network = IPv6Network(value, strict=not host_bit)
+        elif cidr and strict:
+            raise ValueError("IPv6 address was expected in CIDR notation")
+        else:
+            # `IPv6Address` (unlike `IPv6Network`) classifies IPv4-mapped
+            # addresses via the embedded IPv4 address, so a mapped public
+            # address such as `::ffff:1.1.1.1` is not mistaken for private.
+            addr = IPv6Address(value)
+        return addr and _check_private_ipv6(addr, private)
     except (ValueError, AddressValueError, NetmaskValueError):
         return False
